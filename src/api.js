@@ -88,6 +88,11 @@ export async function askVincony(messages, model, onChunk) {
   const session = await getSession();
   if (!session?.access_token) return { error: "signin" };
 
+  // "auto" is our UI sentinel for "let the server choose" — the chat function has no
+  // smart router and rejects a literal "auto" id, so omit the field entirely (it then
+  // defaults to its own model). Any other value is a real catalog id and is sent as-is.
+  const realModel = model && model !== "auto" ? model : undefined;
+
   let res;
   try {
     res = await fetch(CHAT_URL, {
@@ -97,7 +102,7 @@ export async function askVincony(messages, model, onChunk) {
         apikey: ANON_KEY,
         Authorization: `Bearer ${session.access_token}`,
       },
-      body: JSON.stringify({ messages, ...(model ? { model } : {}) }),
+      body: JSON.stringify({ messages, ...(realModel ? { model: realModel } : {}) }),
     });
   } catch {
     return { error: "network" };

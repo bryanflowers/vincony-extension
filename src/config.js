@@ -5,9 +5,11 @@ export const SUPABASE_REF = "cyntatcliohzvhmzpfkb";
 export const SITE_URL = "https://vincony.com";
 export const APP_URL = "https://app.vincony.com";
 // A small default set the side panel exposes. IDs must match the live chat catalog
-// (src/data/chatModelCatalog.json in the main app). "auto" = the smart router.
+// (src/data/chatModelCatalog.json in the main app). "auto" is a sentinel meaning
+// "send no model field" so the server picks its own default (api.js omits it) —
+// the chat function does NOT accept a literal "auto" model id.
 export const MODELS = [
-  { id: "auto", label: "Auto · smart router" },
+  { id: "auto", label: "Auto · Vincony default" },
   { id: "google/gemini-3-flash-preview", label: "Gemini 3 Flash · fast" },
   { id: "openai/gpt-5-mini", label: "GPT-5 mini" },
   { id: "anthropic/claude-sonnet-4.5", label: "Claude Sonnet 4.5" },
