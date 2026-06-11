@@ -1,0 +1,30 @@
+{
+  "manifest_version": 3,
+  "name": "Vincony — AI sidebar & answer engine",
+  "version": "1.0.0",
+  "description": "Ask 800+ AI models about any page. Vincony's AI sidebar, page summaries, and answer engine — right in your browser.",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_title": "Vincony — open AI sidebar",
+    "default_icon": { "16": "icons/icon16.png", "48": "icons/icon48.png", "128": "icons/icon128.png" }
+  },
+  "side_panel": { "default_path": "src/sidepanel.html" },
+  "background": { "service_worker": "src/background.js", "type": "module" },
+  "permissions": ["sidePanel", "contextMenus", "storage", "cookies", "scripting", "activeTab"],
+  "host_permissions": [
+    "https://vincony.com/*",
+    "https://*.vincony.com/*",
+    "https://cyntatcliohzvhmzpfkb.supabase.co/*"
+  ],
+  "commands": {
+    "_execute_action": {
+      "suggested_key": { "default": "Alt+Shift+V" },
+      "description": "Open the Vincony AI sidebar"
+    }
+  },
+  "omnibox": { "keyword": "vinc" }
+}

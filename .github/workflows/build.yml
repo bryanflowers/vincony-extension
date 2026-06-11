@@ -1,0 +1,75 @@
+name: Build & Publish
+
+on:
+  push:
+    branches: [master, main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # Lint the MV3 manifest + sources with web-ext (Mozilla's linter; also validates Chrome).
+      - name: Lint
+        run: npx --yes web-ext lint --source-dir . --warnings-as-errors=false
+
+      # Always produce an installable zip artifact.
+      - name: Package zip
+        run: |
+          npx --yes web-ext build --source-dir . --artifacts-dir web-ext-artifacts --overwrite-dest
+          ls -la web-ext-artifacts
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vincony-extension-zip
+          path: web-ext-artifacts/*.zip
+          if-no-files-found: warn
+
+      # ---- Store publishing: only on a v* tag, and only when the store secrets exist ----
+      # (The `secrets` context isn't available in `if:`, so we tag-gate here and guard on
+      # the empty env inside each step — a no-secret run just logs "skipped".)
+
+      # Chrome Web Store: needs CWS_EXTENSION_ID, CWS_CLIENT_ID, CWS_CLIENT_SECRET, CWS_REFRESH_TOKEN.
+      - name: Publish to Chrome Web Store
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          CWS_EXTENSION_ID: ${{ secrets.CWS_EXTENSION_ID }}
+          CWS_CLIENT_ID: ${{ secrets.CWS_CLIENT_ID }}
+          CWS_CLIENT_SECRET: ${{ secrets.CWS_CLIENT_SECRET }}
+          CWS_REFRESH_TOKEN: ${{ secrets.CWS_REFRESH_TOKEN }}
+        run: |
+          if [ -z "$CWS_EXTENSION_ID" ]; then
+            echo "Chrome Web Store secrets not set — skipping publish."; exit 0
+          fi
+          ZIP=$(ls web-ext-artifacts/*.zip | head -1)
+          npx --yes chrome-webstore-upload-cli@3 upload \
+            --source "$ZIP" \
+            --extension-id "$CWS_EXTENSION_ID" \
+            --client-id "$CWS_CLIENT_ID" \
+            --client-secret "$CWS_CLIENT_SECRET" \
+            --refresh-token "$CWS_REFRESH_TOKEN" \
+            --auto-publish
+
+      # Firefox AMO: needs AMO_JWT_ISSUER + AMO_JWT_SECRET.
+      - name: Publish to Firefox AMO
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
+          AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+        run: |
+          if [ -z "$AMO_JWT_ISSUER" ]; then
+            echo "Firefox AMO secrets not set — skipping publish."; exit 0
+          fi
+          npx --yes web-ext sign --source-dir . \
+            --api-key "$AMO_JWT_ISSUER" \
+            --api-secret "$AMO_JWT_SECRET" \
+            --channel listed

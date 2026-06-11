@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="sidepanel.css" />
+    <title>Vincony</title>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <img src="../icons/icon48.png" alt="" width="20" height="20" />
+        <span>Vincony</span>
+      </div>
+      <div class="top-actions">
+        <select id="model" class="model" title="Model"></select>
+        <button id="newchat" class="icon-btn" title="New chat" aria-label="New chat">&#x1F5D1;</button>
+      </div>
+    </header>
+
+    <div id="signin" class="banner hidden">
+      <span>Sign in to Vincony to start asking.</span>
+      <a id="signin-link" href="#" target="_blank" rel="noopener">Sign in</a>
+    </div>
+
+    <main id="thread" class="thread">
+      <div class="empty" id="empty">
+        <img src="../icons/icon128.png" alt="" width="44" height="44" />
+        <h1>Ask anything</h1>
+        <p>Get answers from 800+ AI models. Use the button below to ask about the page you're on.</p>
+      </div>
+    </main>
+
+    <div class="page-row">
+      <button id="ask-page" class="page-btn">Ask about this page</button>
+    </div>
+
+    <form id="composer" class="composer">
+      <textarea id="input" rows="1" placeholder="Ask anything…" autocomplete="off"></textarea>
+      <button id="send" type="submit" class="send" aria-label="Send">&#x2191;</button>
+    </form>
+
+    <script type="module" src="sidepanel.js"></script>
+  </body>
+</html>
