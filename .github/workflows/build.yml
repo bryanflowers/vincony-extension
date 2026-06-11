@@ -18,14 +18,28 @@ jobs:
         with:
           node-version: 20
 
-      # Lint the MV3 manifest + sources with web-ext (Mozilla's linter; also validates Chrome).
-      - name: Lint
-        run: npx --yes web-ext lint --source-dir . --warnings-as-errors=false
+      # Validate the manifest + syntax-check every source file. (We don't gate on
+      # `web-ext lint` because it's Firefox-oriented and errors on Chrome's MV3
+      # `service_worker` + the Chromium-only side_panel API — this extension is
+      # Chromium-first. We run it informationally below.)
+      - name: Validate
+        run: |
+          node -e "const m=JSON.parse(require('fs').readFileSync('manifest.json','utf8')); if(m.manifest_version!==3) throw new Error('not MV3'); for(const k of ['name','version','background','side_panel']) if(!m[k]) throw new Error('missing '+k); console.log('manifest OK:', m.name, m.version)"
+          for f in src/*.js; do node --check --input-type=module < "$f" && echo "OK  $f"; done
 
-      # Always produce an installable zip artifact.
+      - name: Lint (informational)
+        continue-on-error: true
+        run: npx --yes web-ext lint --source-dir . --warnings-as-errors=false || true
+
+      # Produce the installable zip the Chrome Web Store / Edge Add-ons expect
+      # (a zip of the extension root; exclude repo/meta files).
       - name: Package zip
         run: |
-          npx --yes web-ext build --source-dir . --artifacts-dir web-ext-artifacts --overwrite-dest
+          mkdir -p web-ext-artifacts
+          VERSION=$(node -p "require('./manifest.json').version")
+          zip -rq "web-ext-artifacts/vincony-extension-$VERSION.zip" \
+            manifest.json icons src \
+            -x '*.DS_Store'
           ls -la web-ext-artifacts
 
       - uses: actions/upload-artifact@v4
