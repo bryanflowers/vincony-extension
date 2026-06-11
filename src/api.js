@@ -10,6 +10,14 @@ function chunkIndex(name, base) {
   return name === base ? 0 : (parseInt(name.slice(base.length + 1), 10) || 0);
 }
 
+// @supabase/ssr encodes the cookie payload as base64url (`-`/`_`, no padding).
+// atob() only decodes standard base64, so normalize first.
+function decodeBase64Url(s) {
+  let b = s.replace(/-/g, "+").replace(/_/g, "/");
+  while (b.length % 4) b += "=";
+  return atob(b);
+}
+
 /** Read + parse the @supabase/ssr session cookie (handles base64- prefix + chunking). */
 export async function getSession() {
   try {
@@ -19,7 +27,7 @@ export async function getSession() {
     if (!parts.length) return null;
     parts.sort((a, b) => chunkIndex(a.name, base) - chunkIndex(b.name, base));
     let raw = parts.map((p) => p.value).join("");
-    if (raw.startsWith("base64-")) raw = atob(raw.slice(7));
+    if (raw.startsWith("base64-")) raw = decodeBase64Url(raw.slice(7));
     const session = JSON.parse(raw);
     return session?.access_token ? session : null;
   } catch {
