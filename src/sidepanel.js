@@ -129,14 +129,23 @@ async function send(userText, { cite, contextBlock, displayText } = {}) {
 
   const typing = addTyping();
   const bubble = typing.querySelector(".bubble");
-  let started = false;
-  const onChunk = (_delta, full) => {
-    started = true;
-    bubble.innerHTML = renderMarkdown(full);
+  // Coalesce streamed deltas to ~one render per 50ms (the model emits many tokens/sec, and
+  // re-parsing the whole message on each is wasteful). A final authoritative render after the
+  // stream covers any dropped trailing tick. Mirrors the web app's parseSSEStream FLUSH_MS.
+  let latest = "";
+  let flushTimer = null;
+  const flush = () => {
+    flushTimer = null;
+    bubble.innerHTML = renderMarkdown(latest);
     thread.scrollTop = thread.scrollHeight;
+  };
+  const onChunk = (_delta, full) => {
+    latest = full;
+    if (!flushTimer) flushTimer = setTimeout(flush, 50);
   };
 
   const res = await askVincony(payload, modelSel.value, onChunk);
+  if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
 
   if (res.error) {
     const info = ERRORS[res.error];
@@ -146,7 +155,8 @@ async function send(userText, { cite, contextBlock, displayText } = {}) {
     history.pop(); // don't keep an unanswered turn in context
   } else {
     const text = res.text || "";
-    if (!started) bubble.innerHTML = renderMarkdown(text || "(no answer)");
+    // Authoritative final render (covers a dropped throttle tick mid-stream).
+    bubble.innerHTML = renderMarkdown(text || "(no answer)");
     if (res.citations?.length) {
       const cites = document.createElement("span");
       cites.className = "page-cite";

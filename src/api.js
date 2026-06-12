@@ -2,9 +2,27 @@
 // the (non-httpOnly) Supabase session cookie, extracts the access token, and calls the
 // same authenticated `chat` edge function the web app uses — so answers count against the
 // user's account and credits, with no separate login. The chat endpoint streams SSE.
-import { SUPABASE_URL, ANON_KEY, SUPABASE_REF } from "./config.js";
+import { SUPABASE_URL, ANON_KEY, SUPABASE_REF, APP_URL } from "./config.js";
 
 const CHAT_URL = `${SUPABASE_URL}/functions/v1/chat`;
+const EXT_REFRESH_URL = `${APP_URL}/api/ext-refresh`;
+
+// True when the cookie's access token is expired or within 30s of expiring.
+function isExpired(session) {
+  return !!session?.expires_at && session.expires_at * 1000 < Date.now() + 30_000;
+}
+
+// Ask the website to refresh + rotate the session cookie SERVER-SIDE. The extension must not
+// call Supabase's token endpoint directly — refresh tokens rotate, so an out-of-band refresh
+// would invalidate the cookie's refresh token and log the user out of the site. The website's
+// /api/ext-refresh does it atomically (Set-Cookie); we then re-read the cookie. Best-effort.
+async function refreshSession() {
+  try {
+    await fetch(EXT_REFRESH_URL, { method: "POST", credentials: "include" });
+  } catch {
+    /* offline / blocked — caller surfaces a signin error if the token is still bad */
+  }
+}
 
 function chunkIndex(name, base) {
   return name === base ? 0 : (parseInt(name.slice(base.length + 1), 10) || 0);
@@ -46,6 +64,7 @@ async function readSSE(body, onChunk) {
   let buffer = "";
   let full = "";
   let citations;
+  let streamError;
   try {
     outer: while (true) {
       const { done, value } = await reader.read();
@@ -69,6 +88,11 @@ async function readSSE(body, onChunk) {
           if (Array.isArray(parsed.citations) && parsed.citations.length) {
             citations = parsed.citations;
           }
+          // The chat fn can emit an error event mid-stream (e.g. a tool-loop failure after
+          // the 200 + headers). Capture it so we don't render an empty "(no answer)".
+          if (parsed.error) {
+            streamError = typeof parsed.error === "string" ? parsed.error : (parsed.error.message || "Something went wrong.");
+          }
         } catch {
           // malformed line — skip
         }
@@ -77,15 +101,27 @@ async function readSSE(body, onChunk) {
   } finally {
     reader.cancel().catch(() => {});
   }
-  return { content: full, citations };
+  return { content: full, citations, error: streamError };
 }
 
 /**
  * Send an OpenAI-shaped message list to the chat function and stream the reply.
  * onChunk(delta, fullSoFar) fires as tokens arrive. Returns { text, citations } or { error }.
  */
+function doFetch(messages, realModel, session) {
+  return fetch(CHAT_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      apikey: ANON_KEY,
+      Authorization: `Bearer ${session.access_token}`,
+    },
+    body: JSON.stringify({ messages, ...(realModel ? { model: realModel } : {}) }),
+  });
+}
+
 export async function askVincony(messages, model, onChunk) {
-  const session = await getSession();
+  let session = await getSession();
   if (!session?.access_token) return { error: "signin" };
 
   // "auto" is our UI sentinel for "let the server choose" — the chat function has no
@@ -93,22 +129,34 @@ export async function askVincony(messages, model, onChunk) {
   // defaults to its own model). Any other value is a real catalog id and is sent as-is.
   const realModel = model && model !== "auto" ? model : undefined;
 
+  // If the cookie's access token is already expired, refresh it before the call so we don't
+  // burn a round-trip on a guaranteed 401.
+  if (isExpired(session)) {
+    await refreshSession();
+    session = await getSession();
+    if (!session?.access_token) return { error: "signin" };
+  }
+
   let res;
   try {
-    res = await fetch(CHAT_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        apikey: ANON_KEY,
-        Authorization: `Bearer ${session.access_token}`,
-      },
-      body: JSON.stringify({ messages, ...(realModel ? { model: realModel } : {}) }),
-    });
+    res = await doFetch(messages, realModel, session);
   } catch {
     return { error: "network" };
   }
 
-  if (res.status === 401) return { error: "signin" };
+  // A 401 means the token expired between read and call — refresh once and retry.
+  if (res.status === 401) {
+    await refreshSession();
+    const s2 = await getSession();
+    if (!s2?.access_token) return { error: "signin" };
+    try {
+      res = await doFetch(messages, realModel, s2);
+    } catch {
+      return { error: "network" };
+    }
+    if (res.status === 401) return { error: "signin" };
+  }
+
   if (res.status === 402) return { error: "credits" };
   if (res.status === 429) return { error: "Too many requests — slow down a moment." };
   if (!res.ok || !res.body) {
@@ -117,7 +165,8 @@ export async function askVincony(messages, model, onChunk) {
     return { error: e };
   }
 
-  const { content, citations } = await readSSE(res.body, onChunk);
+  const { content, citations, error } = await readSSE(res.body, onChunk);
+  if (error && !content) return { error };
   return { text: content, citations };
 }
 
